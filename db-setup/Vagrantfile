@@ -1,0 +1,54 @@
+Vagrant.configure("2") do |config|
+  config.vm.box = "ubuntu/focal64"
+  config.vm.network "forwarded_port", guest: 5432, host: 5432
+
+  config.vm.provision "shell", inline: <<-SHELL
+    apt-get update
+    apt-get upgrade -y
+    apt-get install -y postgresql postgresql-contrib
+
+    systemctl start postgresql
+    systemctl enable postgresql
+
+    sudo -u postgres psql -c "CREATE ROLE vagrant WITH LOGIN PASSWORD 'vagrant';"
+    sudo -u postgres psql -c "ALTER ROLE vagrant CREATEDB;"
+    sudo -u postgres createdb -O vagrant vagrant_db
+
+    sudo -u postgres psql -d vagrant_db -c "
+      CREATE TABLE users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(50) NOT NULL,
+        email VARCHAR(100) NOT NULL,
+        hashed_password VARCHAR(100) NOT NULL,
+        is_active BOOLEAN NOT NULL,
+        is_hr BOOLEAN NOT NULL
+      );
+    "
+    sudo -u postgres psql -d vagrant_db -c "
+      CREATE TABLE jobs (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(100) NOT NULL,
+        description TEXT NOT NULL,
+        employment_type VARCHAR(50) NOT NULL,
+        location VARCHAR(100) NOT NULL,
+        is_active BOOLEAN NOT NULL,
+        employer_id INTEGER REFERENCES users(id)
+      );
+    "
+    sudo -u postgres psql -d vagrant_db -c "
+      CREATE TABLE applications (
+        id SERIAL PRIMARY KEY,
+        cover_letter TEXT,
+        status VARCHAR(50) NOT NULL,
+        applied_at TIMESTAMP NOT NULL,
+        updated_at TIMESTAMP NOT NULL,
+        job_id INTEGER REFERENCES jobs(id),
+        applicant_id INTEGER REFERENCES users(id)
+      );
+    "
+
+    sudo sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" /etc/postgresql/12/main/postgresql.conf
+    echo "host all  all 0.0.0.0/0 md5" | sudo tee -a /etc/postgresql/12/main/pg_hba.conf
+    systemctl restart postgresql
+  SHELL
+end
